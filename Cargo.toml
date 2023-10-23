@@ -1,0 +1,8 @@
+[package]
+name = "dt_renamer"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+dt_walker = { version = "0.1.0", path = "dt_walker" }
+itertools = "0.11"
