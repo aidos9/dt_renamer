@@ -311,7 +311,7 @@ mod tests {
 
     #[test]
     fn test_build_recursive_tree() {
-        let structure = Builder::new()
+        let mut structure = Builder::new()
             .with_directory(Dir::new(
                 "dt_walker".to_string(),
                 true,
@@ -321,9 +321,11 @@ mod tests {
             .build()
             .unwrap();
 
+        structure.files.sort_by(|a, b| a.source.cmp(&b.source));
+
         assert_eq!(
             structure.files,
-            vec![
+            [
                 File::new(
                     PathBuf::from_str("dt_walker/Cargo.toml")
                         .unwrap()
