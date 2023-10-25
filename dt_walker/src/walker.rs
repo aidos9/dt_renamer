@@ -16,6 +16,7 @@ pub struct DTWalker {
     directory_inclusions: DirProperties,
     max_depth: usize,
     fail_on_depth: bool,
+    canonicalize: bool,
 }
 
 impl DTWalker {
@@ -25,6 +26,7 @@ impl DTWalker {
             directory_inclusions: DirProperties::First,
             max_depth: usize::MAX,
             fail_on_depth: true,
+            canonicalize: false,
         };
     }
 
@@ -42,6 +44,12 @@ impl DTWalker {
 
     pub fn without_fail_on_depth(mut self) -> Self {
         self.fail_on_depth = false;
+
+        return self;
+    }
+
+    pub fn with_canonicalize(mut self) -> Self {
+        self.canonicalize = true;
 
         return self;
     }
@@ -64,7 +72,12 @@ impl DTWalker {
 
         let mut results = match self.directory_inclusions {
             DirProperties::Skip | DirProperties::Last => Vec::new(),
-            DirProperties::First => vec![dir.clone()],
+            DirProperties::First => vec![if self.canonicalize {
+                dir.canonicalize()
+                    .map_err(|e| Error::CanonicalizeError(e))?
+            } else {
+                dir.clone()
+            }],
         };
 
         let contents = read_dir(dir.clone()).map_err(|e| Error::ReadDirError(e))?;
@@ -77,7 +90,11 @@ impl DTWalker {
                     if p.is_dir() {
                         results.extend(self.visit_directory(p, depth + 1)?);
                     } else if p.is_file() {
-                        results.push(p.canonicalize().map_err(|e| Error::CanonicalizeError(e))?);
+                        results.push(if self.canonicalize {
+                            p.canonicalize().map_err(|e| Error::CanonicalizeError(e))?
+                        } else {
+                            p
+                        });
                     }
                 }
                 Err(e) => return Err(Error::ReadDirError(e)),
@@ -85,7 +102,12 @@ impl DTWalker {
         }
 
         if self.directory_inclusions == DirProperties::Last {
-            results.push(dir);
+            results.push(if self.canonicalize {
+                dir.canonicalize()
+                    .map_err(|e| Error::CanonicalizeError(e))?
+            } else {
+                dir.clone()
+            });
         }
 
         return Ok(results);
