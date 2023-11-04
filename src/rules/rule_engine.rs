@@ -1,5 +1,9 @@
+use std::path::PathBuf;
+
+use itertools::Itertools;
+
 use crate::{
-    rename_engine::{Dir, File},
+    rename_tree::{Dir, File},
     rules::rule::{DirRule, FileRule, Selection, SortDirection},
 };
 
@@ -7,67 +11,111 @@ use crate::{
 pub struct RuleEngine {
     global_index: usize,
     local_index: usize,
+    dir_rules: Vec<DirRule>,
+    file_rules: Vec<FileRule>,
 }
 
 impl RuleEngine {
-    pub fn new() -> Self {
+    pub fn new(dir_rules: Vec<DirRule>, file_rules: Vec<FileRule>) -> Self {
         return Self {
             global_index: 0,
             local_index: 0,
+            dir_rules,
+            file_rules,
         };
     }
 
-    pub fn process_dir(&mut self, dir: &mut Dir) {
+    pub fn process_dir(&mut self, mut dir: Dir) -> Vec<File> {
         self.local_index = 0;
 
-        // for f in dir {
+        let mut files = std::mem::take(&mut dir.contents);
 
-        // }
+        for rule in self.dir_rules.clone() {
+            self.execute_dir_rule(&rule, &mut files);
+        }
+
+        for rule in &dir.dir_rules {
+            self.execute_dir_rule(&rule, &mut files);
+        }
+
+        for f in &mut files {
+            self.run_file(f);
+        }
+
+        return files;
     }
 
-    pub fn process_file(&mut self, file: File) {
+    pub fn process_file(&mut self, file: &mut File) {
         self.local_index = 0;
         self.run_file(file);
     }
 
-    fn run_file(&mut self, file: File) {
-        // ...
+    fn run_file(&mut self, file: &mut File) {
+        for rule in &self.file_rules {
+            self.execute_file_rule(rule, &mut file.source);
+        }
+
+        for rule in &file.rules {
+            self.execute_file_rule(rule, &mut file.source);
+        }
+
         self.global_index += 1;
         self.local_index += 1;
     }
 
-    fn execute_dir_rule(&self, rule: &DirRule, mut input: Vec<String>) -> Vec<String> {
+    fn execute_dir_rule(&mut self, rule: &DirRule, input: &mut Vec<File>) {
         match rule {
-            DirRule::Sort(d) => {
-                Self::sort(*d, &mut input);
+            DirRule::Sort(d) => Self::sort(*d, input),
+            DirRule::Remove(rule) => {
+                let filtered = input
+                    .drain(0..)
+                    .filter(|f| !rule.resolve(&f.source.display().to_string()))
+                    .collect_vec();
 
-                return input;
+                let _ = std::mem::replace(input, filtered);
             }
-            DirRule::RemoveDuplicates => {
-                use itertools::Itertools;
+            DirRule::IncludeOnly(rule) => {
+                let filtered = input
+                    .drain(0..)
+                    .filter(|f| rule.resolve(&f.source.display().to_string()))
+                    .collect_vec();
 
-                return input.into_iter().unique().collect();
+                let _ = std::mem::replace(input, filtered);
             }
-            DirRule::Remove(_) => todo!(),
-            DirRule::IncludeOnly(_) => todo!(),
+            DirRule::OffsetLocalIndex(i) => self.local_index = *i,
         }
     }
 
-    fn sort(direction: SortDirection, input: &mut Vec<String>) {
+    fn sort(direction: SortDirection, input: &mut Vec<File>) {
         match direction {
-            SortDirection::Ascending => input.sort(),
-            SortDirection::Descending => input.sort_by(|a, b| b.cmp(a)),
+            SortDirection::Ascending => input.sort_by(|a, b| a.source.cmp(&b.source)),
+            SortDirection::Descending => input.sort_by(|a, b| b.source.cmp(&a.source)),
         }
     }
 
-    fn execute_file_rule(&self, rule: &FileRule, input: String) -> String {
-        return match rule {
+    fn execute_file_rule(&self, rule: &FileRule, input: &mut PathBuf) -> bool {
+        match rule {
             FileRule::Replace(selection, find, replace) => {
-                Self::replace(input, *selection, find, replace)
+                let _ = std::mem::replace(
+                    input,
+                    PathBuf::from(Self::replace(
+                        input.display().to_string(),
+                        *selection,
+                        find,
+                        replace,
+                    )),
+                );
             }
             FileRule::Insert(_, _) => todo!(),
-            FileRule::Set(s) => s.clone(),
+            FileRule::Set(s) => input.set_file_name(s),
+            FileRule::SkipIf(rule) => {
+                if rule.resolve(&input.display().to_string()) {
+                    return false;
+                }
+            }
         };
+
+        return true;
     }
 
     fn replace(input: String, selection: Selection, find: &String, replace: &String) -> String {

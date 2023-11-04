@@ -1,9 +1,9 @@
 #[derive(Clone, PartialEq, Eq, Debug, Hash)]
 pub enum DirRule {
     Sort(SortDirection),
-    RemoveDuplicates,
     Remove(MatchRule),
     IncludeOnly(MatchRule),
+    OffsetLocalIndex(usize),
 }
 
 #[derive(Clone, PartialEq, Eq, Debug, Hash)]
@@ -22,6 +22,7 @@ pub enum FileRule {
     Replace(Selection, String, String),
     Insert(Position, InsertionType),
     Set(String),
+    SkipIf(MatchRule),
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Hash)]

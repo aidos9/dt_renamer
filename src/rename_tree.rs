@@ -1,3 +1,4 @@
+use std::collections::BTreeSet;
 use std::fs;
 use std::path::{Path, PathBuf};
 
@@ -8,12 +9,10 @@ use crate::rules::RuleEngine;
 use dt_walker::{DTWalker, DirProperties};
 
 #[derive(Debug)]
-pub struct RenameEngine {
-    global_index: usize,
+pub struct RenameTree {
     rule_engine: RuleEngine,
+    file_set: BTreeSet<PathBuf>,
     files: Vec<File>,
-    dir_rules: Vec<DirRule>,
-    file_rules: Vec<FileRule>,
 }
 
 #[derive(Debug, Default)]
@@ -38,16 +37,16 @@ pub struct Dir {
 
 #[derive(Clone, PartialEq, Debug, Eq)]
 pub struct File {
-    source: String,
-    rules: Vec<FileRule>,
-    destination: String,
-    processed: bool,
+    pub(crate) source: PathBuf,
+    pub(crate) rules: Vec<FileRule>,
+    pub(crate) destination: PathBuf,
+    pub(crate) processed: bool,
 }
 
 #[derive(Clone, PartialEq, Debug, Hash, Eq)]
 pub struct RenameResult {
-    source: String,
-    destination: String,
+    source: PathBuf,
+    destination: PathBuf,
 }
 
 impl Builder {
@@ -91,30 +90,34 @@ impl Builder {
         return self;
     }
 
-    pub fn build(self) -> Result<RenameEngine, Error> {
-        let mut engine = RenameEngine::default();
-
-        engine.build_tree(self)?;
-
-        return Ok(engine);
+    pub fn build_tree(self) -> Result<RenameTree, Error> {
+        return RenameTree::build_from_builder(self);
     }
 }
 
-impl RenameEngine {
-    fn build_tree(&mut self, mut builder: Builder) -> Result<(), Error> {
+impl RenameTree {
+    fn build_from_builder(mut builder: Builder) -> Result<Self, Error> {
+        let mut engine = Self {
+            rule_engine: RuleEngine::new(builder.dir_rules, builder.file_rules),
+            file_set: BTreeSet::new(),
+            files: Vec::new(),
+        };
+
         for mut dir in builder.directories {
             dir.build()?;
 
-            self.files.append(&mut dir.contents);
+            engine
+                .files
+                .append(&mut engine.rule_engine.process_dir(dir));
         }
 
         for f in &builder.files {
             f.validate()?;
         }
 
-        self.files.append(&mut builder.files);
+        engine.files.append(&mut builder.files);
 
-        return Ok(());
+        return Ok(engine);
     }
 
     pub fn run(self) -> Result<Vec<RenameResult>, Error> {
@@ -127,44 +130,40 @@ impl RenameEngine {
 
     fn run_with_fn(
         mut self,
-        rename_func: fn(PathBuf, String) -> Result<RenameResult, Error>,
+        rename: fn(PathBuf, PathBuf) -> Result<RenameResult, Error>,
     ) -> Result<Vec<RenameResult>, Error> {
-        todo!();
+        let mut results = Vec::with_capacity(self.files.len());
+
+        for file in self.files {
+            if self.file_set.insert(file.source.clone()) {
+                results.push(rename(file.source, file.destination)?);
+            } else {
+                return Err(Error::DuplicateFileError(file.source.display().to_string()));
+            }
+        }
+
+        return Ok(results);
     }
 
-    fn dry_rename_file(source: PathBuf, dest: String) -> Result<RenameResult, Error> {
+    fn dry_rename_file(source: PathBuf, dest: PathBuf) -> Result<RenameResult, Error> {
         return Ok(RenameResult {
-            source: source.display().to_string(),
+            source: source,
             destination: dest,
         });
     }
 
-    fn rename_file(source: PathBuf, dest: String) -> Result<RenameResult, Error> {
-        let result = RenameResult {
-            source: source.display().to_string(),
-            destination: dest.clone(),
-        };
-
-        return fs::rename(source, dest)
+    fn rename_file(source: PathBuf, dest: PathBuf) -> Result<RenameResult, Error> {
+        return fs::rename(&source, &dest)
             .map_err(|e| Error::RenameError(e))
-            .map(|_| result);
-    }
-}
-
-impl Default for RenameEngine {
-    fn default() -> Self {
-        return Self {
-            global_index: 0,
-            rule_engine: Default::default(),
-            files: Default::default(),
-            dir_rules: Default::default(),
-            file_rules: Default::default(),
-        };
+            .map(|_| RenameResult {
+                source: source.clone(),
+                destination: dest.clone(),
+            });
     }
 }
 
 impl Dir {
-    fn new(
+    pub fn new(
         path: String,
         recursive: bool,
         dir_rules: Vec<DirRule>,
@@ -243,20 +242,20 @@ impl Dir {
 }
 
 impl File {
-    pub fn new(path: String) -> Self {
+    pub fn new<P: Into<PathBuf>>(path: P) -> Self {
         return Self {
-            source: path,
+            source: path.into(),
             rules: Vec::new(),
-            destination: String::new(),
+            destination: PathBuf::new(),
             processed: false,
         };
     }
 
-    fn new_with_rules(path: String, rules: Vec<FileRule>) -> Self {
+    fn new_with_rules<P: Into<PathBuf>>(path: P, rules: Vec<FileRule>) -> Self {
         return Self {
-            source: path,
+            source: path.into(),
             rules,
-            destination: String::new(),
+            destination: PathBuf::new(),
             processed: false,
         };
     }
@@ -271,7 +270,7 @@ impl File {
         let path = Path::new(&self.source);
 
         if !path.is_file() {
-            return Err(Error::NotFile(self.source.clone()));
+            return Err(Error::NotFile(self.source.display().to_string()));
         }
 
         return Ok(());
@@ -284,81 +283,85 @@ mod tests {
 
     use super::*;
 
-    #[test]
-    fn test_build_flat_tree() {
-        let structure = Builder::new()
-            .with_directory(Dir::new(
-                "dt_walker".to_string(),
-                false,
-                Vec::new(),
-                Vec::new(),
-            ))
-            .build()
-            .unwrap();
+    mod build {
+        use super::*;
 
-        assert_eq!(
-            structure.files,
-            vec![File::new(
-                PathBuf::from_str("dt_walker/Cargo.toml")
-                    .unwrap()
-                    .canonicalize()
-                    .unwrap()
-                    .display()
-                    .to_string()
-            )]
-        );
-    }
+        #[test]
+        fn test_build_flat_tree() {
+            let structure = Builder::new()
+                .with_directory(Dir::new(
+                    "dt_walker".to_string(),
+                    false,
+                    Vec::new(),
+                    Vec::new(),
+                ))
+                .build_tree()
+                .unwrap();
 
-    #[test]
-    fn test_build_recursive_tree() {
-        let mut structure = Builder::new()
-            .with_directory(Dir::new(
-                "dt_walker".to_string(),
-                true,
-                Vec::new(),
-                Vec::new(),
-            ))
-            .build()
-            .unwrap();
-
-        structure.files.sort_by(|a, b| a.source.cmp(&b.source));
-
-        assert_eq!(
-            structure.files,
-            [
-                File::new(
+            assert_eq!(
+                structure.files,
+                vec![File::new(
                     PathBuf::from_str("dt_walker/Cargo.toml")
                         .unwrap()
                         .canonicalize()
                         .unwrap()
                         .display()
                         .to_string()
-                ),
-                File::new(
-                    PathBuf::from_str("dt_walker/src/error.rs")
-                        .unwrap()
-                        .canonicalize()
-                        .unwrap()
-                        .display()
-                        .to_string()
-                ),
-                File::new(
-                    PathBuf::from_str("dt_walker/src/lib.rs")
-                        .unwrap()
-                        .canonicalize()
-                        .unwrap()
-                        .display()
-                        .to_string()
-                ),
-                File::new(
-                    PathBuf::from_str("dt_walker/src/walker.rs")
-                        .unwrap()
-                        .canonicalize()
-                        .unwrap()
-                        .display()
-                        .to_string()
-                )
-            ]
-        );
+                )]
+            );
+        }
+
+        #[test]
+        fn test_build_recursive_tree() {
+            let mut structure = Builder::new()
+                .with_directory(Dir::new(
+                    "dt_walker".to_string(),
+                    true,
+                    Vec::new(),
+                    Vec::new(),
+                ))
+                .build_tree()
+                .unwrap();
+
+            structure.files.sort_by(|a, b| a.source.cmp(&b.source));
+
+            assert_eq!(
+                structure.files,
+                [
+                    File::new(
+                        PathBuf::from_str("dt_walker/Cargo.toml")
+                            .unwrap()
+                            .canonicalize()
+                            .unwrap()
+                            .display()
+                            .to_string()
+                    ),
+                    File::new(
+                        PathBuf::from_str("dt_walker/src/error.rs")
+                            .unwrap()
+                            .canonicalize()
+                            .unwrap()
+                            .display()
+                            .to_string()
+                    ),
+                    File::new(
+                        PathBuf::from_str("dt_walker/src/lib.rs")
+                            .unwrap()
+                            .canonicalize()
+                            .unwrap()
+                            .display()
+                            .to_string()
+                    ),
+                    File::new(
+                        PathBuf::from_str("dt_walker/src/walker.rs")
+                            .unwrap()
+                            .canonicalize()
+                            .unwrap()
+                            .display()
+                            .to_string()
+                    )
+                ]
+            );
+        }
     }
 }
