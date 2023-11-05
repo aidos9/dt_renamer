@@ -25,7 +25,7 @@ pub struct Builder {
 
 #[derive(Clone, PartialEq, Debug, Eq)]
 pub struct Dir {
-    pub(crate) path: String,
+    pub(crate) path: PathBuf,
     pub(crate) recursive: bool,
     pub(crate) dir_rules: Vec<DirRule>,
     pub(crate) file_rules: Vec<FileRule>,
@@ -145,26 +145,26 @@ impl RenameTree {
         return Ok(results);
     }
 
-    fn dry_rename_file(source: PathBuf, dest: PathBuf) -> Result<RenameResult, Error> {
+    fn dry_rename_file(source: PathBuf, destination: PathBuf) -> Result<RenameResult, Error> {
         return Ok(RenameResult {
-            source: source,
-            destination: dest,
+            source,
+            destination,
         });
     }
 
-    fn rename_file(source: PathBuf, dest: PathBuf) -> Result<RenameResult, Error> {
-        return fs::rename(&source, &dest)
+    fn rename_file(source: PathBuf, destination: PathBuf) -> Result<RenameResult, Error> {
+        return fs::rename(&source, &destination)
             .map_err(|e| Error::RenameError(e))
             .map(|_| RenameResult {
-                source: source.clone(),
-                destination: dest.clone(),
+                source,
+                destination,
             });
     }
 }
 
 impl Dir {
     pub fn new(
-        path: String,
+        path: PathBuf,
         recursive: bool,
         dir_rules: Vec<DirRule>,
         file_rules: Vec<FileRule>,
@@ -185,7 +185,7 @@ impl Dir {
         let dir_path = Path::new(&self.path);
 
         if !dir_path.is_dir() {
-            return Err(Error::NotDirectory(self.path.clone()));
+            return Err(Error::NotDirectory(self.path.display().to_string()));
         }
 
         self.contents = if self.recursive {
@@ -288,9 +288,9 @@ mod tests {
 
         #[test]
         fn test_build_flat_tree() {
-            let structure = Builder::new()
+            let mut structure = Builder::new()
                 .with_directory(Dir::new(
-                    "dt_walker".to_string(),
+                    std::env::current_dir().unwrap(),
                     false,
                     Vec::new(),
                     Vec::new(),
@@ -298,24 +298,33 @@ mod tests {
                 .build_tree()
                 .unwrap();
 
-            assert_eq!(
-                structure.files,
-                vec![File::new(
-                    PathBuf::from_str("dt_walker/Cargo.toml")
-                        .unwrap()
-                        .canonicalize()
-                        .unwrap()
-                        .display()
-                        .to_string()
-                )]
-            );
+            structure.files.sort_by(|a, b| a.source.cmp(&b.source));
+
+            let mut cmp = ["/Cargo.toml", "/README.md"].map(|s| {
+                File::new(
+                    PathBuf::from_str(&format!(
+                        "{}{}",
+                        std::env::current_dir().unwrap().display(),
+                        s
+                    ))
+                    .unwrap()
+                    .canonicalize()
+                    .unwrap()
+                    .display()
+                    .to_string(),
+                )
+            });
+
+            cmp.sort_by(|a, b| a.source.cmp(&b.source));
+
+            assert_eq!(structure.files, cmp);
         }
 
         #[test]
         fn test_build_recursive_tree() {
             let mut structure = Builder::new()
                 .with_directory(Dir::new(
-                    "dt_walker".to_string(),
+                    std::env::current_dir().unwrap(),
                     true,
                     Vec::new(),
                     Vec::new(),
@@ -325,43 +334,41 @@ mod tests {
 
             structure.files.sort_by(|a, b| a.source.cmp(&b.source));
 
-            assert_eq!(
-                structure.files,
-                [
-                    File::new(
-                        PathBuf::from_str("dt_walker/Cargo.toml")
-                            .unwrap()
-                            .canonicalize()
-                            .unwrap()
-                            .display()
-                            .to_string()
-                    ),
-                    File::new(
-                        PathBuf::from_str("dt_walker/src/error.rs")
-                            .unwrap()
-                            .canonicalize()
-                            .unwrap()
-                            .display()
-                            .to_string()
-                    ),
-                    File::new(
-                        PathBuf::from_str("dt_walker/src/lib.rs")
-                            .unwrap()
-                            .canonicalize()
-                            .unwrap()
-                            .display()
-                            .to_string()
-                    ),
-                    File::new(
-                        PathBuf::from_str("dt_walker/src/walker.rs")
-                            .unwrap()
-                            .canonicalize()
-                            .unwrap()
-                            .display()
-                            .to_string()
-                    )
-                ]
-            );
+            let mut cmp = [
+                "/Cargo.toml",
+                "/README.md",
+                "/src/error.rs",
+                "/src/lib.rs",
+                "/src/rename_tree.rs",
+                "/src/rules/mod.rs",
+                "/src/rules/rule_engine.rs",
+                "/src/rules/rule.rs",
+            ]
+            .map(|s| {
+                File::new(
+                    PathBuf::from_str(&format!(
+                        "{}{}",
+                        std::env::current_dir().unwrap().display(),
+                        s
+                    ))
+                    .unwrap()
+                    .canonicalize()
+                    .unwrap()
+                    .display()
+                    .to_string(),
+                )
+            });
+
+            cmp.sort_by(|a, b| a.source.cmp(&b.source));
+
+            assert_eq!(structure.files, cmp);
         }
+    }
+
+    mod run {
+        use super::*;
+
+        // #[test]
+        // fn test_
     }
 }
