@@ -1,3 +1,6 @@
+#[cfg(feature = "regex_match")]
+use regex::Regex;
+
 #[derive(Clone, PartialEq, Eq, Debug, Hash)]
 pub enum DirRule {
     Sort(SortDirection),
@@ -17,8 +20,11 @@ pub enum MatchRule {
     Or(Box<MatchRule>, Box<MatchRule>),
 }
 
-#[derive(Clone, PartialEq, Eq, Debug, Hash)]
+#[derive(Clone, Debug)]
+#[cfg_attr(not(feature = "regex_match"), derive(PartialEq, Eq, Hash))]
 pub enum FileRule {
+    #[cfg(feature = "regex_match")]
+    RegexReplace(Selection, Regex, String),
     Replace(Selection, String, String),
     Insert(Position, InsertionType),
     Set(String),
