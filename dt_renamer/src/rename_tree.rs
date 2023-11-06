@@ -23,24 +23,23 @@ pub struct Builder {
     file_rules: Vec<FileRule>,
 }
 
-#[derive(Clone, PartialEq, Debug, Eq)]
+#[derive(Clone, Debug)]
+#[cfg_attr(not(feature = "regex_match"), derive(PartialEq, Eq))]
 pub struct Dir {
     pub(crate) path: PathBuf,
     pub(crate) recursive: bool,
     pub(crate) dir_rules: Vec<DirRule>,
     pub(crate) file_rules: Vec<FileRule>,
-    pub(crate) nested_dirs: Vec<Dir>,
     pub(crate) contents: Vec<File>,
-    pub(crate) local_index: usize,
     pub(crate) processed: bool,
 }
 
-#[derive(Clone, PartialEq, Debug, Eq)]
+#[derive(Clone, Debug)]
+#[cfg_attr(not(feature = "regex_match"), derive(PartialEq, Eq))]
 pub struct File {
     pub(crate) source: PathBuf,
     pub(crate) rules: Vec<FileRule>,
     pub(crate) destination: PathBuf,
-    pub(crate) processed: bool,
 }
 
 #[derive(Clone, PartialEq, Debug, Hash, Eq)]
@@ -108,7 +107,7 @@ impl RenameTree {
 
             engine
                 .files
-                .append(&mut engine.rule_engine.process_dir(dir));
+                .append(&mut engine.rule_engine.process_dir(dir)?);
         }
 
         for f in &builder.files {
@@ -174,9 +173,7 @@ impl Dir {
             recursive,
             dir_rules,
             file_rules,
-            nested_dirs: Vec::new(),
             contents: Vec::new(),
-            local_index: 0,
             processed: false,
         };
     }
@@ -243,20 +240,24 @@ impl Dir {
 
 impl File {
     pub fn new<P: Into<PathBuf>>(path: P) -> Self {
+        let source = path.into();
+        let destination = source.clone();
+
         return Self {
-            source: path.into(),
+            source,
             rules: Vec::new(),
-            destination: PathBuf::new(),
-            processed: false,
+            destination,
         };
     }
 
     fn new_with_rules<P: Into<PathBuf>>(path: P, rules: Vec<FileRule>) -> Self {
+        let source = path.into();
+        let destination = source.clone();
+
         return Self {
-            source: path.into(),
+            source,
             rules,
-            destination: PathBuf::new(),
-            processed: false,
+            destination,
         };
     }
 
@@ -283,7 +284,40 @@ mod tests {
 
     use super::*;
 
+    const ROOT_DIR_FILES: [&str; 2] = ["/Cargo.toml", "/README.md"];
+    const ALL_SRC_DIR_FILES: [&str; 8] = [
+        "/Cargo.toml",
+        "/README.md",
+        "/src/error.rs",
+        "/src/lib.rs",
+        "/src/rename_tree.rs",
+        "/src/rules/mod.rs",
+        "/src/rules/rule_engine.rs",
+        "/src/rules/rule.rs",
+    ];
+
+    fn dt_files_from_paths<const N: usize>(paths: [&str; N]) -> [File; N] {
+        return make_full_paths_from_arr(paths).map(|p| File::new(p));
+    }
+
+    fn make_full_paths_from_arr<const N: usize>(paths: [&str; N]) -> [String; N] {
+        return paths.map(|s| {
+            PathBuf::from_str(&format!(
+                "{}{}",
+                std::env::current_dir().unwrap().display(),
+                s
+            ))
+            .unwrap()
+            .canonicalize()
+            .unwrap()
+            .display()
+            .to_string()
+        });
+    }
+
     mod build {
+        use itertools::Itertools;
+
         use super::*;
 
         #[test]
@@ -300,24 +334,14 @@ mod tests {
 
             structure.files.sort_by(|a, b| a.source.cmp(&b.source));
 
-            let mut cmp = ["/Cargo.toml", "/README.md"].map(|s| {
-                File::new(
-                    PathBuf::from_str(&format!(
-                        "{}{}",
-                        std::env::current_dir().unwrap().display(),
-                        s
-                    ))
-                    .unwrap()
-                    .canonicalize()
-                    .unwrap()
-                    .display()
-                    .to_string(),
-                )
-            });
+            let mut cmp = dt_files_from_paths(ROOT_DIR_FILES);
 
             cmp.sort_by(|a, b| a.source.cmp(&b.source));
 
-            assert_eq!(structure.files, cmp);
+            assert_eq!(
+                structure.files.into_iter().map(|f| f.source).collect_vec(),
+                cmp.map(|f| f.source)
+            );
         }
 
         #[test]
@@ -334,41 +358,195 @@ mod tests {
 
             structure.files.sort_by(|a, b| a.source.cmp(&b.source));
 
-            let mut cmp = [
-                "/Cargo.toml",
-                "/README.md",
-                "/src/error.rs",
-                "/src/lib.rs",
-                "/src/rename_tree.rs",
-                "/src/rules/mod.rs",
-                "/src/rules/rule_engine.rs",
-                "/src/rules/rule.rs",
-            ]
-            .map(|s| {
-                File::new(
-                    PathBuf::from_str(&format!(
-                        "{}{}",
-                        std::env::current_dir().unwrap().display(),
-                        s
-                    ))
-                    .unwrap()
-                    .canonicalize()
-                    .unwrap()
-                    .display()
-                    .to_string(),
-                )
-            });
+            let mut cmp = dt_files_from_paths(ALL_SRC_DIR_FILES);
 
             cmp.sort_by(|a, b| a.source.cmp(&b.source));
 
-            assert_eq!(structure.files, cmp);
+            assert_eq!(
+                structure.files.into_iter().map(|f| f.source).collect_vec(),
+                cmp.map(|f| f.source)
+            );
         }
     }
 
     mod run {
+        use itertools::Itertools;
+
+        use crate::rules::rule::{InsertionType, MatchRule, Position, Selection};
+
         use super::*;
 
-        // #[test]
-        // fn test_
+        #[test]
+        fn test_skip_toml() {
+            let result = Builder::new()
+                .with_directory(Dir::new(
+                    std::env::current_dir().unwrap(),
+                    true,
+                    vec![DirRule::IncludeOnly(MatchRule::Not(
+                        MatchRule::EndsWith(".toml".to_string()).into(),
+                    ))],
+                    Vec::new(),
+                ))
+                .build_tree()
+                .unwrap()
+                .dry_run()
+                .unwrap();
+
+            let mut result = result
+                .into_iter()
+                .map(|r| r.destination.display().to_string())
+                .collect_vec();
+
+            result.sort();
+
+            let mut cmp = make_full_paths_from_arr(ALL_SRC_DIR_FILES)
+                .into_iter()
+                .filter(|p| !p.ends_with(".toml"))
+                .collect_vec();
+
+            cmp.sort();
+
+            assert_eq!(result, cmp);
+        }
+
+        #[test]
+        fn test_skip_toml_append2() {
+            let result = Builder::new()
+                .with_directory(Dir::new(
+                    std::env::current_dir().unwrap(),
+                    true,
+                    vec![DirRule::IncludeOnly(MatchRule::Not(
+                        MatchRule::EndsWith(".toml".to_string()).into(),
+                    ))],
+                    vec![FileRule::Insert(
+                        Position::End,
+                        InsertionType::Static("2".to_string()),
+                    )],
+                ))
+                .build_tree()
+                .unwrap()
+                .dry_run()
+                .unwrap();
+
+            let mut result = result
+                .into_iter()
+                .map(|r| r.destination.display().to_string())
+                .collect_vec();
+
+            result.sort();
+
+            let mut cmp = make_full_paths_from_arr(ALL_SRC_DIR_FILES)
+                .into_iter()
+                .filter(|p| !p.ends_with(".toml"))
+                .map(|mut s| {
+                    s.push_str("2");
+                    s
+                })
+                .collect_vec();
+
+            cmp.sort();
+
+            assert_eq!(result, cmp);
+        }
+
+        #[test]
+        fn test_only_toml() {
+            let result = Builder::new()
+                .with_directory(Dir::new(
+                    std::env::current_dir().unwrap(),
+                    true,
+                    vec![DirRule::IncludeOnly(MatchRule::EndsWith(
+                        ".toml".to_string(),
+                    ))],
+                    Vec::new(),
+                ))
+                .build_tree()
+                .unwrap()
+                .dry_run()
+                .unwrap();
+
+            let mut result = result
+                .into_iter()
+                .map(|r| r.destination.display().to_string())
+                .collect_vec();
+
+            result.sort();
+
+            let mut cmp = make_full_paths_from_arr(ALL_SRC_DIR_FILES)
+                .into_iter()
+                .filter(|p| p.ends_with(".toml"))
+                .collect_vec();
+
+            cmp.sort();
+
+            assert_eq!(result, cmp);
+        }
+
+        #[test]
+        fn test_only_toml_replace_toml() {
+            let result = Builder::new()
+                .with_directory(Dir::new(
+                    std::env::current_dir().unwrap(),
+                    true,
+                    vec![DirRule::IncludeOnly(MatchRule::EndsWith(
+                        ".toml".to_string(),
+                    ))],
+                    vec![FileRule::Replace(
+                        Selection::All,
+                        ".toml".to_string(),
+                        ".no".to_string(),
+                    )],
+                ))
+                .build_tree()
+                .unwrap()
+                .dry_run()
+                .unwrap();
+
+            let mut result = result
+                .into_iter()
+                .map(|r| r.destination.display().to_string())
+                .collect_vec();
+
+            result.sort();
+
+            let mut cmp = make_full_paths_from_arr(ALL_SRC_DIR_FILES)
+                .into_iter()
+                .filter(|p| p.ends_with(".toml"))
+                .map(|s| s.replace(".toml", ".no"))
+                .collect_vec();
+
+            cmp.sort();
+
+            assert_eq!(result, cmp);
+        }
+
+        #[test]
+        fn test_only_md_set_test_rs() {
+            let result = Builder::new()
+                .with_directory(Dir::new(
+                    std::env::current_dir().unwrap(),
+                    true,
+                    vec![DirRule::IncludeOnly(MatchRule::EndsWith(".md".to_string()))],
+                    vec![FileRule::Set("test.md".to_string())],
+                ))
+                .build_tree()
+                .unwrap()
+                .dry_run()
+                .unwrap();
+
+            let mut result = result.into_iter().map(|r| r.destination).collect_vec();
+
+            result.sort();
+
+            let mut pth = std::env::current_dir().unwrap().canonicalize().unwrap();
+
+            pth.push("test.md");
+
+            let mut cmp = vec![pth];
+
+            cmp.sort();
+
+            assert_eq!(result, cmp);
+        }
     }
 }

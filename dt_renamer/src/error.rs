@@ -10,4 +10,6 @@ pub enum Error {
     CanonicalizeError(io::Error),
     ReadDirError(io::Error),
     ReadDirEntryError(io::Error),
+    CannotIdentifyFileName,
+    InsertIndexTooLarge
 }
