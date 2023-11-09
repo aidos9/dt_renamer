@@ -1,3 +1,5 @@
 pub mod error;
-pub mod rename_tree;
+mod rename_tree;
 pub mod rules;
+
+pub use rename_tree::*;

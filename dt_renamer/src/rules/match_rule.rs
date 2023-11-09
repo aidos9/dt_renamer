@@ -29,6 +29,12 @@ pub enum FileRule {
     Insert(Position, InsertionType),
     Set(String),
     SkipIf(MatchRule),
+    Left(String, bool),
+    Right(String, bool),
+    #[cfg(feature = "regex_match")]
+    RegexLeft(Regex, bool),
+    #[cfg(feature = "regex_match")]
+    RegexRight(Regex, bool),
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Hash)]
@@ -58,6 +64,14 @@ pub enum InsertionType {
 pub enum SortDirection {
     Ascending,
     Descending,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Hash)]
+pub enum Direction {
+    LeftExclusive,
+    LeftInclusive,
+    RightExclusive,
+    RightInclusive,
 }
 
 impl MatchRule {

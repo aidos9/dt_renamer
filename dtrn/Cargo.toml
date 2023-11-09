@@ -1,0 +1,8 @@
+[package]
+name = "dtrn"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+clap = { version = "4.4", features = ["derive"] }
+dt_renamer = { version = "0.1", path = "../dt_renamer" }

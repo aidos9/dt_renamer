@@ -3,8 +3,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 use crate::error::Error;
-use crate::rules::rule::{DirRule, FileRule};
-use crate::rules::RuleEngine;
+use crate::rules::{DirRule, FileRule, RuleEngine};
 
 use dt_walker::{DTWalker, DirProperties};
 
@@ -16,7 +15,7 @@ pub struct RenameTree {
 }
 
 #[derive(Debug, Default)]
-pub struct Builder {
+pub struct RTBuilder {
     directories: Vec<Dir>,
     files: Vec<File>,
     dir_rules: Vec<DirRule>,
@@ -48,7 +47,7 @@ pub struct RenameResult {
     destination: PathBuf,
 }
 
-impl Builder {
+impl RTBuilder {
     pub fn new() -> Self {
         return Self::default();
     }
@@ -95,7 +94,7 @@ impl Builder {
 }
 
 impl RenameTree {
-    fn build_from_builder(mut builder: Builder) -> Result<Self, Error> {
+    fn build_from_builder(mut builder: RTBuilder) -> Result<Self, Error> {
         let mut engine = Self {
             rule_engine: RuleEngine::new(builder.dir_rules, builder.file_rules),
             file_set: BTreeSet::new(),
@@ -162,7 +161,11 @@ impl RenameTree {
 }
 
 impl Dir {
-    pub fn new(
+    pub fn new(path: PathBuf, recursive: bool) -> Self {
+        return Self::new_with_rules(path, recursive, Vec::new(), Vec::new());
+    }
+
+    pub fn new_with_rules(
         path: PathBuf,
         recursive: bool,
         dir_rules: Vec<DirRule>,
@@ -176,6 +179,30 @@ impl Dir {
             contents: Vec::new(),
             processed: false,
         };
+    }
+
+    pub fn with_dir_rule(mut self, rule: DirRule) -> Self {
+        self.dir_rules.push(rule);
+
+        return self;
+    }
+
+    pub fn with_dir_rules(mut self, rules: &[DirRule]) -> Self {
+        self.dir_rules.extend_from_slice(rules);
+
+        return self;
+    }
+
+    pub fn with_file_rule(mut self, rule: FileRule) -> Self {
+        self.file_rules.push(rule);
+
+        return self;
+    }
+
+    pub fn with_file_rules(mut self, rules: &[FileRule]) -> Self {
+        self.file_rules.extend_from_slice(rules);
+
+        return self;
     }
 
     fn build(&mut self) -> Result<(), Error> {
@@ -322,8 +349,8 @@ mod tests {
 
         #[test]
         fn test_build_flat_tree() {
-            let mut structure = Builder::new()
-                .with_directory(Dir::new(
+            let mut structure = RTBuilder::new()
+                .with_directory(Dir::new_with_rules(
                     std::env::current_dir().unwrap(),
                     false,
                     Vec::new(),
@@ -346,8 +373,8 @@ mod tests {
 
         #[test]
         fn test_build_recursive_tree() {
-            let mut structure = Builder::new()
-                .with_directory(Dir::new(
+            let mut structure = RTBuilder::new()
+                .with_directory(Dir::new_with_rules(
                     std::env::current_dir().unwrap(),
                     true,
                     Vec::new(),
@@ -372,14 +399,14 @@ mod tests {
     mod run {
         use itertools::Itertools;
 
-        use crate::rules::rule::{InsertionType, MatchRule, Position, Selection};
+        use crate::rules::{InsertionType, MatchRule, Position, Selection};
 
         use super::*;
 
         #[test]
         fn test_skip_toml() {
-            let result = Builder::new()
-                .with_directory(Dir::new(
+            let result = RTBuilder::new()
+                .with_directory(Dir::new_with_rules(
                     std::env::current_dir().unwrap(),
                     true,
                     vec![DirRule::IncludeOnly(MatchRule::Not(
@@ -411,8 +438,8 @@ mod tests {
 
         #[test]
         fn test_skip_toml_append2() {
-            let result = Builder::new()
-                .with_directory(Dir::new(
+            let result = RTBuilder::new()
+                .with_directory(Dir::new_with_rules(
                     std::env::current_dir().unwrap(),
                     true,
                     vec![DirRule::IncludeOnly(MatchRule::Not(
@@ -451,8 +478,8 @@ mod tests {
 
         #[test]
         fn test_only_toml() {
-            let result = Builder::new()
-                .with_directory(Dir::new(
+            let result = RTBuilder::new()
+                .with_directory(Dir::new_with_rules(
                     std::env::current_dir().unwrap(),
                     true,
                     vec![DirRule::IncludeOnly(MatchRule::EndsWith(
@@ -484,8 +511,8 @@ mod tests {
 
         #[test]
         fn test_only_toml_replace_toml() {
-            let result = Builder::new()
-                .with_directory(Dir::new(
+            let result = RTBuilder::new()
+                .with_directory(Dir::new_with_rules(
                     std::env::current_dir().unwrap(),
                     true,
                     vec![DirRule::IncludeOnly(MatchRule::EndsWith(
@@ -522,8 +549,8 @@ mod tests {
 
         #[test]
         fn test_only_md_set_test_rs() {
-            let result = Builder::new()
-                .with_directory(Dir::new(
+            let result = RTBuilder::new()
+                .with_directory(Dir::new_with_rules(
                     std::env::current_dir().unwrap(),
                     true,
                     vec![DirRule::IncludeOnly(MatchRule::EndsWith(".md".to_string()))],
