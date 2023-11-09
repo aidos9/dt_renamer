@@ -200,12 +200,50 @@ impl RuleEngine {
                 input.set_file_name(Self::right(Self::get_file_name(input)?, m, *inclusive));
             }
             #[cfg(feature = "regex_match")]
-            FileRule::RegexLeft(_, _) => todo!(),
+            FileRule::RegexLeft(reg, inclusive) => {
+                input.set_file_name(Self::regex_left(
+                    Self::get_file_name(input)?,
+                    reg,
+                    *inclusive,
+                ));
+            }
             #[cfg(feature = "regex_match")]
-            FileRule::RegexRight(_, _) => todo!(),
+            FileRule::RegexRight(reg, inclusive) => {
+                input.set_file_name(Self::regex_right(
+                    Self::get_file_name(input)?,
+                    reg,
+                    *inclusive,
+                ));
+            }
         };
 
         return Ok(true);
+    }
+
+    #[cfg(feature = "regex_match")]
+    fn regex_left(mut input: String, reg: &Regex, inclusive: bool) -> String {
+        if let Some(m) = reg.find(&input) {
+            if inclusive {
+                input = input[..m.end()].to_string();
+            } else {
+                input = input[..m.start()].to_string();
+            }
+        }
+
+        return input;
+    }
+
+    #[cfg(feature = "regex_match")]
+    fn regex_right(mut input: String, reg: &Regex, inclusive: bool) -> String {
+        if let Some(m) = reg.find(&input) {
+            if inclusive {
+                input = input[m.start()..].to_string();
+            } else {
+                input = input[m.end()..].to_string();
+            }
+        }
+
+        return input;
     }
 
     fn left(mut input: String, match_str: &str, inclusive: bool) -> String {
@@ -364,6 +402,42 @@ mod tests {
         );
     }
 
+    #[test]
+    fn test_left_2() {
+        assert_eq!(
+            RuleEngine::left(
+                "test message message hello".to_string(),
+                &"message".to_string(),
+                false
+            ),
+            "test "
+        );
+    }
+
+    #[test]
+    fn test_right_1() {
+        assert_eq!(
+            RuleEngine::right(
+                "test message message hello".to_string(),
+                &"message".to_string(),
+                true
+            ),
+            "message message hello"
+        );
+    }
+
+    #[test]
+    fn test_right_2() {
+        assert_eq!(
+            RuleEngine::right(
+                "test message message hello".to_string(),
+                &"message".to_string(),
+                false
+            ),
+            " message hello"
+        );
+    }
+
     #[cfg(feature = "regex_match")]
     mod regex {
         use super::*;
@@ -396,6 +470,54 @@ mod tests {
             let output = RuleEngine::regex_replace(input, Selection::All, &r, "cow");
 
             assert_eq!(output, "cow cow cow");
+        }
+
+        #[test]
+        fn test_regex_left_1() {
+            assert_eq!(
+                RuleEngine::regex_left(
+                    "test message message hello".to_string(),
+                    &Regex::new("message").unwrap(),
+                    true
+                ),
+                "test message"
+            );
+        }
+
+        #[test]
+        fn test_regex_left_2() {
+            assert_eq!(
+                RuleEngine::regex_left(
+                    "test message message hello".to_string(),
+                    &Regex::new("message").unwrap(),
+                    false
+                ),
+                "test "
+            );
+        }
+
+        #[test]
+        fn test_regex_right_1() {
+            assert_eq!(
+                RuleEngine::regex_right(
+                    "test message message hello".to_string(),
+                    &Regex::new("message").unwrap(),
+                    true
+                ),
+                "message message hello"
+            );
+        }
+
+        #[test]
+        fn test_regex_right_2() {
+            assert_eq!(
+                RuleEngine::regex_right(
+                    "test message message hello".to_string(),
+                    &Regex::new("message").unwrap(),
+                    false
+                ),
+                " message hello"
+            );
         }
     }
 }
