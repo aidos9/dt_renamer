@@ -307,20 +307,19 @@ impl File {
 
 #[cfg(test)]
 mod tests {
-    use std::str::FromStr;
-
     use super::*;
 
-    const ROOT_DIR_FILES: [&str; 2] = ["/Cargo.toml", "/README.md"];
-    const ALL_SRC_DIR_FILES: [&str; 8] = [
-        "/Cargo.toml",
-        "/README.md",
-        "/src/error.rs",
-        "/src/lib.rs",
-        "/src/rename_tree.rs",
-        "/src/rules/mod.rs",
-        "/src/rules/rule_engine.rs",
-        "/src/rules/rule.rs",
+    const ROOT_DIR_FILES: [&str; 2] = ["Cargo.toml", "README.md"];
+    const ALL_SRC_DIR_FILES: [&str; 9] = [
+        "Cargo.toml",
+        "README.md",
+        "src/error.rs",
+        "src/lib.rs",
+        "src/rename_tree.rs",
+        "src/rules/mod.rs",
+        "src/rules/rule_engine.rs",
+        "src/rules/file_rule.rs",
+        "src/rules/match_rule.rs",
     ];
 
     fn dt_files_from_paths<const N: usize>(paths: [&str; N]) -> [File; N] {
@@ -329,16 +328,10 @@ mod tests {
 
     fn make_full_paths_from_arr<const N: usize>(paths: [&str; N]) -> [String; N] {
         return paths.map(|s| {
-            PathBuf::from_str(&format!(
-                "{}{}",
-                std::env::current_dir().unwrap().display(),
-                s
-            ))
-            .unwrap()
-            .canonicalize()
-            .unwrap()
-            .display()
-            .to_string()
+            let mut p = std::env::current_dir().unwrap();
+            p.push(s);
+
+            return p.canonicalize().unwrap().display().to_string();
         });
     }
 
