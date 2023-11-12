@@ -1,7 +1,8 @@
 #[cfg(feature = "regex_match")]
 use regex::Regex;
 
-#[derive(Clone, PartialEq, Eq, Debug, Hash)]
+#[derive(Clone, Debug)]
+#[cfg_attr(not(feature = "regex_match"), derive(PartialEq, Eq, Hash))]
 pub enum DirRule {
     Sort(SortDirection),
     Remove(MatchRule),
@@ -9,8 +10,11 @@ pub enum DirRule {
     OffsetLocalIndex(usize),
 }
 
-#[derive(Clone, PartialEq, Eq, Debug, Hash)]
+#[derive(Clone, Debug)]
+#[cfg_attr(not(feature = "regex_match"), derive(PartialEq, Eq, Hash))]
 pub enum MatchRule {
+    #[cfg(feature = "regex_match")]
+    Matches(Regex),
     Equals(String),
     Contains(String),
     BeginsWith(String),
@@ -77,6 +81,7 @@ pub enum Direction {
 impl MatchRule {
     pub fn resolve(&self, input: &String) -> bool {
         match self {
+            MatchRule::Matches(reg) => return reg.is_match(input),
             MatchRule::Equals(s) => return input == s,
             MatchRule::Contains(s) => {
                 if s.len() > input.len() {
@@ -102,7 +107,7 @@ impl MatchRule {
             MatchRule::And(r1, r2) => return r1.resolve(input) && r2.resolve(input),
             MatchRule::Or(r1, r2) => return r1.resolve(input) || r2.resolve(input),
             MatchRule::Not(r) => return !r.resolve(input),
-        }
+        };
     }
 }
 
@@ -235,6 +240,35 @@ mod tests {
         fn test_not_1() {
             return assert!(MatchRule::Not(MatchRule::Equals("st".to_string()).into())
                 .resolve(&"test".to_string()));
+        }
+
+        #[cfg(feature = "regex_match")]
+        mod regex {
+            use super::*;
+
+            #[test]
+            fn test_matches_1() {
+                return assert!(MatchRule::Matches(
+                    Regex::new(r"^([A-z])* \(\d{4}\)\.[A-z]{3}").unwrap()
+                )
+                .resolve(&"test (1922).mkv".to_string()));
+            }
+
+            #[test]
+            fn test_matches_2() {
+                return assert!(!MatchRule::Matches(
+                    Regex::new(r"^([A-z])* \(\d{4}\)\.[A-z]{3}").unwrap()
+                )
+                .resolve(&"".to_string()));
+            }
+
+            #[test]
+            fn test_matches_3() {
+                return assert!(!MatchRule::Matches(
+                    Regex::new(r"^([A-z])* \(\d{4}\)\.[A-z]{3}").unwrap()
+                )
+                .resolve(&"test (1922).mk".to_string()));
+            }
         }
     }
 }
