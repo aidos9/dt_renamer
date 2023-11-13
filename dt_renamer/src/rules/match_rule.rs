@@ -111,6 +111,18 @@ impl MatchRule {
     }
 }
 
+impl From<&str> for InsertionType {
+    fn from(value: &str) -> Self {
+        return value.to_string().into();
+    }
+}
+
+impl From<String> for InsertionType {
+    fn from(value: String) -> Self {
+        return Self::Static(value);
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -1,13 +1,13 @@
 use std::collections::BTreeSet;
-use std::fs;
 use std::path::{Path, PathBuf};
+use std::{fmt, fs};
 
 use crate::error::Error;
 use crate::rules::{DirRule, FileRule, RuleEngine};
 
 use dt_walker::{DTWalker, DirProperties};
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct RenameTree {
     rule_engine: RuleEngine,
     file_set: BTreeSet<PathBuf>,
@@ -302,6 +302,17 @@ impl File {
         }
 
         return Ok(());
+    }
+}
+
+impl fmt::Display for RenameResult {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        return write!(
+            f,
+            "{} -> {}",
+            self.source.display(),
+            self.destination.display()
+        );
     }
 }
 

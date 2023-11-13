@@ -1,6 +1,7 @@
 use dt_renamer::{
-    rules::{FileRule, MatchRule, Selection},
+    rules::{DirRule, FileRule, InsertionType, MatchRule, Position, Selection},
     Dir, RTBuilder, RenameTree,
 };
+use regex::Regex;
 
 fn main() {}

@@ -1,19 +1,13 @@
 use std::path::PathBuf;
 
-use itertools::Itertools;
-
-use crate::{
-    error::Error,
-    rename_tree::{Dir, File},
-    rules::match_rule::{DirRule, FileRule, Selection, SortDirection},
-};
-
-use super::match_rule::{InsertionType, Position};
+use super::match_rule::{DirRule, FileRule, InsertionType, Position, Selection, SortDirection};
+use crate::error::Error;
+use crate::rename_tree::{Dir, File};
 
 #[cfg(feature = "regex_match")]
 use regex::Regex;
 
-#[derive(Debug, Default)]
+#[derive(Clone, Debug, Default)]
 pub struct RuleEngine {
     global_index: usize,
     local_index: usize,
@@ -37,11 +31,11 @@ impl RuleEngine {
         let mut files = std::mem::take(&mut dir.contents);
 
         for rule in self.dir_rules.clone() {
-            self.execute_dir_rule(&rule, &mut files);
+            self.execute_dir_rule(&rule, &mut files)?;
         }
 
         for rule in &dir.dir_rules {
-            self.execute_dir_rule(&rule, &mut files);
+            self.execute_dir_rule(&rule, &mut files)?;
         }
 
         for f in &mut files {
@@ -72,27 +66,49 @@ impl RuleEngine {
         return Ok(());
     }
 
-    fn execute_dir_rule(&mut self, rule: &DirRule, input: &mut Vec<File>) {
+    fn execute_dir_rule(&mut self, rule: &DirRule, input: &mut Vec<File>) -> Result<(), Error> {
         match rule {
             DirRule::Sort(d) => Self::sort(*d, input),
             DirRule::Remove(rule) => {
-                let filtered = input
-                    .drain(0..)
-                    .filter(|f| !rule.resolve(&f.destination.display().to_string()))
-                    .collect_vec();
+                let mut res = Vec::new();
 
-                let _ = std::mem::replace(input, filtered);
+                for f in input.drain(0..) {
+                    if !rule.resolve(
+                        &f.destination
+                            .file_name()
+                            .ok_or(Error::CannotIdentifyFileName)?
+                            .to_str()
+                            .ok_or(Error::CannotIdentifyFileName)?
+                            .to_string(),
+                    ) {
+                        res.push(f);
+                    }
+                }
+
+                let _ = std::mem::replace(input, res);
             }
             DirRule::IncludeOnly(rule) => {
-                let filtered = input
-                    .drain(0..)
-                    .filter(|f| rule.resolve(&f.destination.display().to_string()))
-                    .collect_vec();
+                let mut res = Vec::new();
 
-                let _ = std::mem::replace(input, filtered);
+                for f in input.drain(0..) {
+                    if rule.resolve(
+                        &f.destination
+                            .file_name()
+                            .ok_or(Error::CannotIdentifyFileName)?
+                            .to_str()
+                            .ok_or(Error::CannotIdentifyFileName)?
+                            .to_string(),
+                    ) {
+                        res.push(f);
+                    }
+                }
+
+                let _ = std::mem::replace(input, res);
             }
             DirRule::OffsetLocalIndex(i) => self.local_index = *i,
         }
+
+        return Ok(());
     }
 
     fn sort(direction: SortDirection, input: &mut Vec<File>) {
