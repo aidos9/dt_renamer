@@ -9,5 +9,7 @@ regex_match = ["regex"]
 
 [dependencies]
 dt_walker = { version = "0.1.0", path = "../dt_walker" }
-itertools = "0.11"
+itertools = "0.12"
 regex = { version = "1.0", optional = true }
+convert_case = "0.6"
+paste = "1.0"

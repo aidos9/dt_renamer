@@ -3,15 +3,6 @@ use regex::Regex;
 
 #[derive(Clone, Debug)]
 #[cfg_attr(not(feature = "regex_match"), derive(PartialEq, Eq, Hash))]
-pub enum DirRule {
-    Sort(SortDirection),
-    Remove(MatchRule),
-    IncludeOnly(MatchRule),
-    OffsetLocalIndex(usize),
-}
-
-#[derive(Clone, Debug)]
-#[cfg_attr(not(feature = "regex_match"), derive(PartialEq, Eq, Hash))]
 pub enum MatchRule {
     #[cfg(feature = "regex_match")]
     Matches(Regex),
@@ -22,60 +13,6 @@ pub enum MatchRule {
     Not(Box<MatchRule>),
     And(Box<MatchRule>, Box<MatchRule>),
     Or(Box<MatchRule>, Box<MatchRule>),
-}
-
-#[derive(Clone, Debug)]
-#[cfg_attr(not(feature = "regex_match"), derive(PartialEq, Eq, Hash))]
-pub enum FileRule {
-    #[cfg(feature = "regex_match")]
-    RegexReplace(Selection, Regex, String),
-    Replace(Selection, String, String),
-    Insert(Position, InsertionType),
-    Set(String),
-    SkipIf(MatchRule),
-    Left(String, bool),
-    Right(String, bool),
-    #[cfg(feature = "regex_match")]
-    RegexLeft(Regex, bool),
-    #[cfg(feature = "regex_match")]
-    RegexRight(Regex, bool),
-}
-
-#[derive(Clone, Copy, PartialEq, Eq, Debug, Hash)]
-pub enum Selection {
-    First,
-    Last,
-    All,
-}
-
-#[derive(Clone, PartialEq, Eq, Debug, Hash)]
-pub enum Position {
-    Index(usize),
-    After(String),
-    Before(String),
-    Start,
-    End,
-}
-
-#[derive(Clone, PartialEq, Eq, Debug, Hash)]
-pub enum InsertionType {
-    LocalIndex,
-    OverallIndex,
-    Static(String),
-}
-
-#[derive(Clone, Copy, PartialEq, Eq, Debug, Hash)]
-pub enum SortDirection {
-    Ascending,
-    Descending,
-}
-
-#[derive(Clone, Copy, PartialEq, Eq, Debug, Hash)]
-pub enum Direction {
-    LeftExclusive,
-    LeftInclusive,
-    RightExclusive,
-    RightInclusive,
 }
 
 impl MatchRule {
@@ -108,18 +45,6 @@ impl MatchRule {
             MatchRule::Or(r1, r2) => return r1.resolve(input) || r2.resolve(input),
             MatchRule::Not(r) => return !r.resolve(input),
         };
-    }
-}
-
-impl From<&str> for InsertionType {
-    fn from(value: &str) -> Self {
-        return value.to_string().into();
-    }
-}
-
-impl From<String> for InsertionType {
-    fn from(value: String) -> Self {
-        return Self::Static(value);
     }
 }
 

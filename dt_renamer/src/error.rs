@@ -11,5 +11,7 @@ pub enum Error {
     ReadDirError(io::Error),
     ReadDirEntryError(io::Error),
     CannotIdentifyFileName,
-    InsertIndexTooLarge
+    InsertIndexTooLarge,
+    VariableNotDefined(String),
+    CannotIdentifyFileExtension,
 }

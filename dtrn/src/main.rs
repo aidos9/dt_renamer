@@ -1,7 +1,4 @@
-use dt_renamer::{
-    rules::{DirRule, FileRule, InsertionType, MatchRule, Position, Selection},
-    Dir, RTBuilder, RenameTree,
-};
+use dt_renamer::{Dir, RTBuilder, RenameTree};
 use regex::Regex;
 
 fn main() {}

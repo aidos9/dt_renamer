@@ -55,14 +55,6 @@ impl<const N: usize> From<[RenameTree; N]> for Script {
     }
 }
 
-impl From<&[RenameTree]> for Script {
-    fn from(value: &[RenameTree]) -> Self {
-        return Self {
-            trees: value.to_vec(),
-        };
-    }
-}
-
 impl From<RenameTree> for Script {
     fn from(value: RenameTree) -> Self {
         return Self { trees: vec![value] };
