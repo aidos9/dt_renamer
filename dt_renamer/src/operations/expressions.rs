@@ -3,8 +3,9 @@ use convert_case::{Case, Casing};
 use regex::Regex;
 
 use crate::error::Error;
-use crate::operations::operation::Expression;
-use crate::operations::{MatchRule, OperationEngine, Position, Selection};
+use crate::operations::supporting_objects::{Position, Selection};
+use crate::operations::{Expression, MatchRule};
+use crate::OperationEngine;
 use crate::{clone_dyn, define_opexp_skeleton};
 
 #[cfg(feature = "regex_match")]

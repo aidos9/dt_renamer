@@ -1,6 +1,7 @@
 use crate::error::Error;
-use crate::operations::{DirOperation, MatchRule, OperationEngine, SortDirection};
-use crate::{clone_dyn, define_opexp_skeleton, File};
+use crate::operations::supporting_objects::SortDirection;
+use crate::operations::{DirOperation, MatchRule};
+use crate::{clone_dyn, define_opexp_skeleton, File, OperationEngine};
 
 define_opexp_skeleton!(sort, direction: SortDirection);
 define_opexp_skeleton!(remove, rule: MatchRule);

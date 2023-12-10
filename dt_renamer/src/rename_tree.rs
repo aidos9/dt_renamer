@@ -3,7 +3,8 @@ use std::path::{Path, PathBuf};
 use std::{fmt, fs};
 
 use crate::error::Error;
-use crate::operations::{DirOperation, FileOperation, OperationEngine};
+use crate::operations::{DirOperation, FileOperation};
+use crate::OperationEngine;
 
 use dt_walker::{DTWalker, DirProperties};
 

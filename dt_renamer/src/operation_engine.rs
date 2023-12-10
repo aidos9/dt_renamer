@@ -1,7 +1,6 @@
 use std::collections::HashMap;
 use std::path::PathBuf;
 
-use super::{InsertionType, Position, Selection, SortDirection};
 use crate::error::Error;
 use crate::operations::{DirOperation, FileOperation};
 use crate::rename_tree::{Dir, File};

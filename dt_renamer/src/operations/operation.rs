@@ -1,6 +1,7 @@
 use std::{fmt::Debug, path::PathBuf};
 
-use crate::{error::Error, operations::OperationEngine, File};
+use crate::OperationEngine;
+use crate::{error::Error, File};
 
 #[macro_export]
 macro_rules! define_opexp_skeleton {

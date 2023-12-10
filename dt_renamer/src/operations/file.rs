@@ -5,7 +5,7 @@ use crate::operations::operation::Expression;
 use crate::operations::{FileOperation, MatchRule};
 use crate::{clone_dyn, define_opexp_skeleton};
 
-use super::OperationEngine;
+use crate::OperationEngine;
 
 define_opexp_skeleton!(if_operation, condition: MatchRule, then_op: Box<dyn FileOperation>, else_op: Option<Box<dyn FileOperation>>);
 define_opexp_skeleton!(set_name_operation, name: Box<dyn Expression>);
