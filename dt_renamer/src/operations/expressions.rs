@@ -4,14 +4,15 @@ use regex::Regex;
 
 use crate::error::Error;
 use crate::operations::operation::Expression;
-use crate::operations::{MatchRule, OperationEngine, Selection};
+use crate::operations::{MatchRule, OperationEngine, Position, Selection};
 use crate::{clone_dyn, define_opexp_skeleton};
 
-define_opexp_skeleton!(insert_expr, base: Box<dyn Expression>, insertion_text: Box<dyn Expression>);
-define_opexp_skeleton!(replace_expr, content: Box<dyn Expression>, selection: Selection, match_str: Box<dyn Expression>, replacement: String);
-define_opexp_skeleton!(if_expr, condition: MatchRule, then_expr: Box<dyn Expression>, else_expr: Option<Box<dyn Expression>>);
 #[cfg(feature = "regex_match")]
 define_opexp_skeleton!(regex_match_expr, regex: Regex, input: Box<dyn Expression>);
+
+define_opexp_skeleton!(insert_expr, position: Position, base: Box<dyn Expression>, insertion_text: Box<dyn Expression>);
+define_opexp_skeleton!(replace_expr, content: Box<dyn Expression>, selection: Selection, match_str: Box<dyn Expression>, replacement: Box<dyn Expression>);
+define_opexp_skeleton!(if_expr, condition: MatchRule, then_expr: Box<dyn Expression>, else_expr: Option<Box<dyn Expression>>);
 define_opexp_skeleton!(convert_case_expr, case: Case, input: Box<dyn Expression>);
 define_opexp_skeleton!(to_upper_case_expr, input: Box<dyn Expression>);
 define_opexp_skeleton!(to_lower_case_expr, input: Box<dyn Expression>);
@@ -23,6 +24,75 @@ define_opexp_skeleton!(combine_expr, lhs: Box<dyn Expression>, rhs: Box<dyn Expr
 define_opexp_skeleton!(constant_expr, value: String);
 define_opexp_skeleton!(file_name_expr);
 define_opexp_skeleton!(file_extension_expr);
+
+macro_rules! unwrap_res_op {
+    ($e:expr) => {{
+        let Some(r) = $e? else {
+            return Ok(None);
+        };
+
+        r
+    }};
+}
+
+impl Expression for InsertExpr {
+    fn execute(&self, engine: &mut OperationEngine) -> Result<Option<String>, Error> {
+        let mut base = unwrap_res_op!(self.base.execute(engine));
+        let insertion_text = unwrap_res_op!(self.insertion_text.execute(engine));
+
+        return Ok(Some(match &self.position {
+            Position::Index(i) => {
+                base.insert_str(*i.min(&base.len()), &insertion_text);
+
+                base
+            }
+            Position::After(f) => {
+                let Some(insert_pos) = base.find(f) else {
+                    return Ok(None);
+                };
+
+                base.insert_str(insert_pos + f.len(), &insertion_text);
+
+                base
+            }
+            #[cfg(feature = "regex_match")]
+            Position::AfterRegex(r) => {
+                let Some(insert_pos) = r.find(&base) else {
+                    return Ok(None);
+                };
+
+                base.insert_str(insert_pos.end(), &insertion_text);
+
+                base
+            }
+            Position::Before(f) => {
+                let Some(insert_pos) = base.find(f) else {
+                    return Ok(None);
+                };
+
+                base.insert_str(insert_pos, &insertion_text);
+
+                base
+            }
+            #[cfg(feature = "regex_match")]
+            Position::BeforeRegex(r) => {
+                let Some(insert_pos) = r.find(&base) else {
+                    return Ok(None);
+                };
+
+                base.insert_str(insert_pos.start(), &insertion_text);
+
+                base
+            }
+            Position::Start => {
+                format!("{}{}", insertion_text, base)
+            }
+            Position::End => format!("{}{}", base, insertion_text),
+        }));
+    }
+
+    clone_dyn!(Expression);
+}
 
 impl Expression for IfExpr {
     fn execute(&self, engine: &mut OperationEngine) -> Result<Option<String>, Error> {
@@ -91,13 +161,11 @@ impl Expression for VariableExpr {
 
 impl Expression for AssignVariableExpr {
     fn execute(&self, engine: &mut OperationEngine) -> Result<Option<String>, Error> {
-        if let Some(value) = self.value.execute(engine)? {
-            engine.set_variable(self.var.clone(), value.clone());
+        let value = unwrap_res_op!(self.value.execute(engine));
 
-            return Ok(Some(value));
-        } else {
-            return Ok(None);
-        }
+        engine.set_variable(self.var.clone(), value.clone());
+
+        return Ok(Some(value));
     }
 
     clone_dyn!(Expression);
@@ -181,9 +249,27 @@ impl Expression for ConstantExpr {
     clone_dyn!(Expression);
 }
 
+impl<'a> From<&'a str> for ConstantExpr {
+    fn from(value: &'a str) -> Self {
+        return Self::new(value.to_string());
+    }
+}
+
 impl From<String> for ConstantExpr {
     fn from(value: String) -> Self {
         return Self::new(value);
+    }
+}
+
+impl From<String> for Box<dyn Expression> {
+    fn from(value: String) -> Self {
+        return ConstantExpr::from(value).into();
+    }
+}
+
+impl<'a> From<&'a str> for Box<dyn Expression> {
+    fn from(value: &'a str) -> Self {
+        return ConstantExpr::from(value).into();
     }
 }
 
@@ -215,13 +301,9 @@ impl Expression for FileExtensionExpr {
 
 impl Expression for ReplaceExpr {
     fn execute(&self, engine: &mut OperationEngine) -> Result<Option<String>, Error> {
-        let Some(input) = self.content.execute(engine)? else {
-            return Ok(None);
-        };
-
-        let Some(matches) = self.match_str.execute(engine)? else {
-            return Ok(Some(input));
-        };
+        let input = unwrap_res_op!(self.content.execute(engine));
+        let matches = unwrap_res_op!(self.match_str.execute(engine));
+        let replacement = unwrap_res_op!(self.replacement.execute(engine));
 
         return match self.selection {
             Selection::First => {
@@ -231,7 +313,7 @@ impl Expression for ReplaceExpr {
                     return Ok(Some(
                         [
                             &input[0..slice],
-                            self.replacement.as_str(),
+                            replacement.as_str(),
                             &input[slice + matches.len()..],
                         ]
                         .join(""),
@@ -246,7 +328,7 @@ impl Expression for ReplaceExpr {
                     return Ok(Some(
                         [
                             &input[0..slice],
-                            self.replacement.as_str(),
+                            replacement.as_str(),
                             &input[slice + matches.len()..],
                         ]
                         .join(""),
@@ -255,7 +337,7 @@ impl Expression for ReplaceExpr {
                     return Ok(Some(input));
                 }
             }
-            Selection::All => Ok(Some(input.replace(&matches, &self.replacement))),
+            Selection::All => Ok(Some(input.replace(&matches, &replacement))),
         };
     }
 
@@ -270,10 +352,10 @@ mod tests {
     fn test_replace_first_1() {
         assert_eq!(
             ReplaceExpr::new(
-                ConstantExpr::from("test message hello".to_string()).into(),
+                "test message hello".into(),
                 Selection::First,
-                ConstantExpr::from("message".to_string()).into(),
-                "yo".to_string()
+                "message".into(),
+                "yo".into()
             )
             .execute(&mut OperationEngine::new(Vec::new(), Vec::new()))
             .unwrap()
@@ -286,10 +368,10 @@ mod tests {
     fn test_replace_first_2() {
         assert_eq!(
             ReplaceExpr::new(
-                ConstantExpr::from("test message message hello".to_string()).into(),
+                "test message message hello".into(),
                 Selection::First,
-                ConstantExpr::from("message".to_string()).into(),
-                "yo".to_string()
+                "message".into(),
+                "yo".into()
             )
             .execute(&mut OperationEngine::new(Vec::new(), Vec::new()))
             .unwrap()
@@ -298,171 +380,131 @@ mod tests {
         );
     }
 
-    // #[test]
-    // fn test_replace_last_1() {
-    //     assert_eq!(
-    //         OperationEngine::replace(
-    //             "test message hello".to_string(),
-    //             Selection::Last,
-    //             &"message".to_string(),
-    //             &"yo".to_string()
-    //         ),
-    //         "test yo hello"
-    //     );
-    // }
+    #[test]
+    fn test_replace_last_1() {
+        assert_eq!(
+            ReplaceExpr::new(
+                "test message hello".into(),
+                Selection::Last,
+                "message".into(),
+                "yo".into()
+            )
+            .execute(&mut OperationEngine::new(Vec::new(), Vec::new()))
+            .unwrap()
+            .unwrap(),
+            "test yo hello"
+        );
+    }
 
-    // #[test]
-    // fn test_replace_last_2() {
-    //     assert_eq!(
-    //         OperationEngine::replace(
-    //             "test message message hello".to_string(),
-    //             Selection::Last,
-    //             &"message".to_string(),
-    //             &"yo".to_string()
-    //         ),
-    //         "test message yo hello"
-    //     );
-    // }
+    #[test]
+    fn test_replace_last_2() {
+        assert_eq!(
+            ReplaceExpr::new(
+                "test message message hello".into(),
+                Selection::Last,
+                "message".into(),
+                "yo".into()
+            )
+            .execute(&mut OperationEngine::new(Vec::new(), Vec::new()))
+            .unwrap()
+            .unwrap(),
+            "test message yo hello"
+        );
+    }
 
-    // #[test]
-    // fn test_left_1() {
-    //     assert_eq!(
-    //         OperationEngine::left(
-    //             "test message message hello".to_string(),
-    //             &"message".to_string(),
-    //             true
-    //         ),
-    //         "test message"
-    //     );
-    // }
+    #[test]
+    fn test_left_1() {
+        assert_eq!(
+            LeftExpr::new("test message message hello".into(), "message".into(), true)
+                .execute(&mut OperationEngine::new(Vec::new(), Vec::new()))
+                .unwrap()
+                .unwrap(),
+            "test message"
+        );
+    }
 
-    // #[test]
-    // fn test_left_2() {
-    //     assert_eq!(
-    //         OperationEngine::left(
-    //             "test message message hello".to_string(),
-    //             &"message".to_string(),
-    //             false
-    //         ),
-    //         "test "
-    //     );
-    // }
+    #[test]
+    fn test_left_2() {
+        assert_eq!(
+            LeftExpr::new("test message message hello".into(), "message".into(), false)
+                .execute(&mut OperationEngine::new(Vec::new(), Vec::new()))
+                .unwrap()
+                .unwrap(),
+            "test "
+        );
+    }
 
-    // #[test]
-    // fn test_right_1() {
-    //     assert_eq!(
-    //         OperationEngine::right(
-    //             "test message message hello".to_string(),
-    //             &"message".to_string(),
-    //             true
-    //         ),
-    //         "message message hello"
-    //     );
-    // }
+    #[test]
+    fn test_right_1() {
+        assert_eq!(
+            RightExpr::new("test message message hello".into(), "message".into(), true)
+                .execute(&mut OperationEngine::new(Vec::new(), Vec::new()))
+                .unwrap()
+                .unwrap(),
+            "message message hello"
+        );
+    }
 
-    // #[test]
-    // fn test_right_2() {
-    //     assert_eq!(
-    //         OperationEngine::right(
-    //             "test message message hello".to_string(),
-    //             &"message".to_string(),
-    //             false
-    //         ),
-    //         " message hello"
-    //     );
-    // }
+    #[test]
+    fn test_right_2() {
+        assert_eq!(
+            RightExpr::new("test message message hello".into(), "message".into(), false)
+                .execute(&mut OperationEngine::new(Vec::new(), Vec::new()))
+                .unwrap()
+                .unwrap(),
+            " message hello"
+        );
+    }
 
-    // #[cfg(feature = "regex_match")]
-    // mod regex {
-    //     use super::*;
+    #[cfg(feature = "regex_match")]
+    mod regex {
+        use super::*;
 
-    //     #[test]
-    //     fn test_regex_replace_first() {
-    //         let r = Regex::new("test").unwrap();
-    //         let input = "test cow test".to_string();
+        #[test]
+        fn test_insert_before_1() {
+            let r = Regex::new("test").unwrap();
 
-    //         let output = OperationEngine::regex_replace(input, Selection::First, &r, "cow");
+            assert_eq!(
+                InsertExpr::new(
+                    Position::BeforeRegex(r),
+                    "test message hello".into(),
+                    "yo ".into()
+                )
+                .execute(&mut OperationEngine::new(Vec::new(), Vec::new()))
+                .unwrap()
+                .unwrap(),
+                "yo test message hello"
+            );
+        }
 
-    //         assert_eq!(output, "cow cow test");
-    //     }
+        #[test]
+        fn test_insert_after_1() {
+            let r = Regex::new("test ").unwrap();
 
-    //     #[test]
-    //     fn test_regex_replace_last() {
-    //         let r = Regex::new("test").unwrap();
-    //         let input = "test cow test".to_string();
+            assert_eq!(
+                InsertExpr::new(
+                    Position::AfterRegex(r),
+                    "test message hello".into(),
+                    "yo ".into()
+                )
+                .execute(&mut OperationEngine::new(Vec::new(), Vec::new()))
+                .unwrap()
+                .unwrap(),
+                "test yo message hello"
+            );
+        }
 
-    //         let output = OperationEngine::regex_replace(input, Selection::Last, &r, "cow");
+        #[test]
+        fn test_match_1() {
+            let r = Regex::new(r"\[.*\]").unwrap();
 
-    //         assert_eq!(output, "test cow cow");
-    //     }
-
-    //     #[test]
-    //     fn test_regex_replace_all() {
-    //         let r = Regex::new("test").unwrap();
-    //         let input = "test cow test".to_string();
-
-    //         let output = OperationEngine::regex_replace(input, Selection::All, &r, "cow");
-
-    //         assert_eq!(output, "cow cow cow");
-    //     }
-
-    //     #[test]
-    //     fn test_regex_left_1() {
-    //         assert_eq!(
-    //             OperationEngine::regex_left(
-    //                 "test message message hello".to_string(),
-    //                 &Regex::new("message").unwrap(),
-    //                 true
-    //             ),
-    //             "test message"
-    //         );
-    //     }
-
-    //     #[test]
-    //     fn test_regex_left_2() {
-    //         assert_eq!(
-    //             OperationEngine::regex_left(
-    //                 "test message message hello".to_string(),
-    //                 &Regex::new("message").unwrap(),
-    //                 false
-    //             ),
-    //             "test "
-    //         );
-    //     }
-
-    //     #[test]
-    //     fn test_regex_right_1() {
-    //         assert_eq!(
-    //             OperationEngine::regex_right(
-    //                 "test message message hello".to_string(),
-    //                 &Regex::new("message").unwrap(),
-    //                 true
-    //             ),
-    //             "message message hello"
-    //         );
-    //     }
-
-    //     #[test]
-    //     fn test_regex_right_2() {
-    //         assert_eq!(
-    //             OperationEngine::regex_right(
-    //                 "test message message hello".to_string(),
-    //                 &Regex::new("message").unwrap(),
-    //                 false
-    //             ),
-    //             " message hello"
-    //         );
-    //     }
-
-    //     #[test]
-    //     fn test_regex_only_1() {
-    //         assert_eq!(
-    //             OperationEngine::regex_only(
-    //                 "test message message hello",
-    //                 &Regex::new("message").unwrap(),
-    //             ),
-    //             Some("message")
-    //         );
-    //     }
-    // }
+            assert_eq!(
+                RegexMatchExpr::new(r, "Cow boy [boss] test".into())
+                    .execute(&mut OperationEngine::new(Vec::new(), Vec::new()))
+                    .unwrap()
+                    .unwrap(),
+                "[boss]"
+            );
+        }
+    }
 }
