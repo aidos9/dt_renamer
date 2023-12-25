@@ -1,7 +1,7 @@
-use std::{fmt::Debug, path::PathBuf};
+use std::fmt::Debug;
 
-use crate::OperationEngine;
-use crate::{error::Error, File};
+use crate::error::Error;
+use crate::{File, OperationEngine};
 
 #[macro_export]
 macro_rules! define_opexp_skeleton {
@@ -44,7 +44,7 @@ pub trait Expression: Debug {
 }
 
 pub trait FileOperation: Debug {
-    fn execute(&self, engine: &mut OperationEngine, input: &mut PathBuf) -> Result<bool, Error>;
+    fn execute(&self, engine: &mut OperationEngine) -> Result<bool, Error>;
 
     fn clone_dyn(&self) -> Box<dyn FileOperation>;
 }

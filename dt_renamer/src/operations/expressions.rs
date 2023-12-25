@@ -1,4 +1,5 @@
 use convert_case::{Case, Casing};
+use itertools::Itertools;
 #[cfg(feature = "regex_match")]
 use regex::Regex;
 
@@ -12,7 +13,7 @@ use crate::{clone_dyn, define_opexp_skeleton};
 define_opexp_skeleton!(regex_match_expr, regex: Regex, input: Box<dyn Expression>);
 
 define_opexp_skeleton!(insert_expr, position: Position, base: Box<dyn Expression>, insertion_text: Box<dyn Expression>);
-define_opexp_skeleton!(replace_expr, content: Box<dyn Expression>, selection: Selection, match_str: Box<dyn Expression>, replacement: Box<dyn Expression>);
+define_opexp_skeleton!(replace_expr, content: Box<dyn Expression>, selection: Selection, find: Box<dyn Expression>, replacement: Box<dyn Expression>);
 define_opexp_skeleton!(if_expr, condition: MatchRule, then_expr: Box<dyn Expression>, else_expr: Option<Box<dyn Expression>>);
 define_opexp_skeleton!(convert_case_expr, case: Case, input: Box<dyn Expression>);
 define_opexp_skeleton!(to_upper_case_expr, input: Box<dyn Expression>);
@@ -21,9 +22,11 @@ define_opexp_skeleton!(variable_expr, var: String);
 define_opexp_skeleton!(assign_variable_expr, var: String, value: Box<dyn Expression>);
 define_opexp_skeleton!(left_expr, input: Box<dyn Expression>, match_str: Box<dyn Expression>, inclusive: bool);
 define_opexp_skeleton!(right_expr, input: Box<dyn Expression>, match_str: Box<dyn Expression>, inclusive: bool);
-define_opexp_skeleton!(combine_expr, lhs: Box<dyn Expression>, rhs: Box<dyn Expression>);
+define_opexp_skeleton!(add_expr, lhs: Box<dyn Expression>, rhs: Box<dyn Expression>);
+define_opexp_skeleton!(combine_expr, exprs: Vec<Box<dyn Expression>>);
 define_opexp_skeleton!(constant_expr, value: String);
 define_opexp_skeleton!(file_name_expr);
+define_opexp_skeleton!(file_stem_expr);
 define_opexp_skeleton!(file_extension_expr);
 
 macro_rules! unwrap_res_op {
@@ -224,7 +227,7 @@ impl Expression for RightExpr {
     clone_dyn!(Expression);
 }
 
-impl Expression for CombineExpr {
+impl Expression for AddExpr {
     fn execute(&self, engine: &mut OperationEngine) -> Result<Option<String>, Error> {
         let Some(mut lhs) = self.lhs.execute(engine)? else {
             return self.rhs.execute(engine);
@@ -237,6 +240,25 @@ impl Expression for CombineExpr {
         lhs.push_str(&rhs);
 
         return Ok(Some(lhs));
+    }
+
+    clone_dyn!(Expression);
+}
+
+impl Expression for CombineExpr {
+    fn execute(&self, engine: &mut OperationEngine) -> Result<Option<String>, Error> {
+        let working = self
+            .exprs
+            .iter()
+            .map(|e| e.execute(engine))
+            .filter_map_ok(|o| o)
+            .fold_ok(String::new(), |a, b| format!("{}{}", a, b))?;
+
+        if working == "" {
+            return Ok(None);
+        }
+
+        return Ok(Some(working));
     }
 
     clone_dyn!(Expression);
@@ -287,6 +309,19 @@ impl Expression for FileNameExpr {
     clone_dyn!(Expression);
 }
 
+impl Expression for FileStemExpr {
+    fn execute(&self, engine: &mut OperationEngine) -> Result<Option<String>, Error> {
+        return Ok(engine
+            .current_file()
+            .destination
+            .file_stem()
+            .and_then(|s| s.to_str())
+            .map(|s| s.to_string()));
+    }
+
+    clone_dyn!(Expression);
+}
+
 impl Expression for FileExtensionExpr {
     fn execute(&self, engine: &mut OperationEngine) -> Result<Option<String>, Error> {
         return Ok(engine
@@ -303,7 +338,7 @@ impl Expression for FileExtensionExpr {
 impl Expression for ReplaceExpr {
     fn execute(&self, engine: &mut OperationEngine) -> Result<Option<String>, Error> {
         let input = unwrap_res_op!(self.content.execute(engine));
-        let matches = unwrap_res_op!(self.match_str.execute(engine));
+        let matches = unwrap_res_op!(self.find.execute(engine));
         let replacement = unwrap_res_op!(self.replacement.execute(engine));
 
         return match self.selection {
@@ -348,6 +383,44 @@ impl Expression for ReplaceExpr {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn test_combine_1() {
+        let r = CombineExpr::new(vec![
+            "test".into(),
+            " ".into(),
+            "yo".into(),
+            " ".into(),
+            "hello".into(),
+        ])
+        .execute(&mut OperationEngine::new(Vec::new(), Vec::new()))
+        .unwrap()
+        .unwrap();
+
+        assert_eq!(r, "test yo hello");
+    }
+
+    #[test]
+    fn test_combine_2() {
+        let r = CombineExpr::new(vec![
+            "test".into(),
+            " ".into(),
+            ReplaceExpr::new(
+                "test message hello".into(),
+                Selection::Last,
+                "message".into(),
+                "yo".into(),
+            )
+            .into(),
+            " ".into(),
+            "hello".into(),
+        ])
+        .execute(&mut OperationEngine::new(Vec::new(), Vec::new()))
+        .unwrap()
+        .unwrap();
+
+        assert_eq!(r, "test test yo hello hello");
+    }
 
     #[test]
     fn test_replace_first_1() {

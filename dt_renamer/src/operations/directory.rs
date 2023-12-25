@@ -3,12 +3,12 @@ use crate::operations::supporting_objects::SortDirection;
 use crate::operations::{DirOperation, MatchRule};
 use crate::{clone_dyn, define_opexp_skeleton, File, OperationEngine};
 
-define_opexp_skeleton!(sort, direction: SortDirection);
-define_opexp_skeleton!(remove, rule: MatchRule);
-define_opexp_skeleton!(include_only, rule: MatchRule);
-define_opexp_skeleton!(offset_local_index, offset: usize);
+define_opexp_skeleton!(sort_operation, direction: SortDirection);
+define_opexp_skeleton!(remove_operation, rule: MatchRule);
+define_opexp_skeleton!(include_only_operation, rule: MatchRule);
+define_opexp_skeleton!(offset_local_index_operation, offset: usize);
 
-impl DirOperation for Sort {
+impl DirOperation for SortOperation {
     fn execute(&self, _engine: &mut OperationEngine, input: &mut Vec<File>) -> Result<(), Error> {
         match self.direction {
             SortDirection::Ascending => {
@@ -25,7 +25,7 @@ impl DirOperation for Sort {
     clone_dyn!(DirOperation);
 }
 
-impl DirOperation for Remove {
+impl DirOperation for RemoveOperation {
     fn execute(&self, _engine: &mut OperationEngine, input: &mut Vec<File>) -> Result<(), Error> {
         let mut res = Vec::new();
 
@@ -50,7 +50,7 @@ impl DirOperation for Remove {
     clone_dyn!(DirOperation);
 }
 
-impl DirOperation for IncludeOnly {
+impl DirOperation for IncludeOnlyOperation {
     fn execute(&self, _engine: &mut OperationEngine, input: &mut Vec<File>) -> Result<(), Error> {
         let mut res = Vec::new();
 
@@ -75,7 +75,7 @@ impl DirOperation for IncludeOnly {
     clone_dyn!(DirOperation);
 }
 
-impl DirOperation for OffsetLocalIndex {
+impl DirOperation for OffsetLocalIndexOperation {
     fn execute(&self, engine: &mut OperationEngine, _input: &mut Vec<File>) -> Result<(), Error> {
         engine.set_local_index(self.offset);
 

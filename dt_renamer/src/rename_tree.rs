@@ -7,10 +7,11 @@ use crate::operations::{DirOperation, FileOperation};
 use crate::OperationEngine;
 
 use dt_walker::{DTWalker, DirProperties};
+#[cfg(feature = "serializable")]
+use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone)]
 pub struct RenameTree {
-    rule_engine: OperationEngine,
     file_set: BTreeSet<PathBuf>,
     files: Vec<File>,
 }
@@ -43,6 +44,7 @@ pub struct File {
 }
 
 #[derive(Clone, PartialEq, Debug, Hash, Eq)]
+#[cfg_attr(feature = "serializable", derive(Serialize, Deserialize))]
 pub struct RenameResult {
     source: PathBuf,
     destination: PathBuf,
@@ -95,26 +97,20 @@ impl RTBuilder {
 }
 
 impl RenameTree {
-    fn build_from_builder(mut builder: RTBuilder) -> Result<Self, Error> {
-        let mut engine = Self {
-            rule_engine: OperationEngine::new(builder.dir_ops, builder.file_ops),
-            file_set: BTreeSet::new(),
-            files: Vec::new(),
-        };
+    fn build_from_builder(builder: RTBuilder) -> Result<Self, Error> {
+        let mut op_engine = OperationEngine::new(builder.dir_ops, builder.file_ops);
 
         for mut dir in builder.directories {
             dir.build()?;
 
-            engine.rule_engine.process_dir(dir)?
+            op_engine.process_dir(dir)?
         }
 
         for f in &builder.files {
             f.validate()?;
         }
 
-        engine.files.append(&mut builder.files);
-
-        return Ok(engine);
+        return Ok(op_engine.into());
     }
 
     pub fn run(self) -> Result<Vec<RenameResult>, Error> {
@@ -159,19 +155,28 @@ impl RenameTree {
     }
 }
 
+impl From<OperationEngine> for RenameTree {
+    fn from(value: OperationEngine) -> Self {
+        return Self {
+            files: value.into_files(),
+            file_set: Default::default(),
+        };
+    }
+}
+
 impl Dir {
-    pub fn new(path: PathBuf, recursive: bool) -> Self {
+    pub fn new<P: Into<PathBuf>>(path: P, recursive: bool) -> Self {
         return Self::new_with_ops(path, recursive, Default::default(), Default::default());
     }
 
-    pub fn new_with_ops(
-        path: PathBuf,
+    pub fn new_with_ops<P: Into<PathBuf>>(
+        path: P,
         recursive: bool,
         dir_ops: Vec<Box<dyn DirOperation>>,
         file_ops: Vec<Box<dyn FileOperation>>,
     ) -> Self {
         return Self {
-            path,
+            path: path.into(),
             recursive,
             dir_ops,
             file_ops,
@@ -268,6 +273,7 @@ impl File {
     pub fn new<P: Into<PathBuf>>(path: P) -> Self {
         return Self::new_with_ops(path, Default::default());
     }
+
     pub fn new_with_ops<P: Into<PathBuf>>(path: P, ops: Vec<Box<dyn FileOperation>>) -> Self {
         let source = path.into();
         let destination = source.clone();
@@ -291,6 +297,10 @@ impl File {
         return self;
     }
 
+    pub fn destination_path_string(&self) -> String {
+        return self.destination.display().to_string();
+    }
+
     fn validate(&self) -> Result<(), Error> {
         let path = Path::new(&self.source);
 
@@ -299,6 +309,16 @@ impl File {
         }
 
         return Ok(());
+    }
+}
+
+impl RenameResult {
+    pub fn destination_path_string(&self) -> Option<String> {
+        return self.destination.to_str().map(|s| s.to_string());
+    }
+
+    pub fn source_path_string(&self) -> Option<String> {
+        return self.source.to_str().map(|s| s.to_string());
     }
 }
 

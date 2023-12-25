@@ -5,7 +5,7 @@ use regex::Regex;
 #[cfg_attr(not(feature = "regex_match"), derive(PartialEq, Eq, Hash))]
 pub enum MatchRule {
     #[cfg(feature = "regex_match")]
-    Matches(Regex),
+    Find(Regex),
     Equals(String),
     Contains(String),
     BeginsWith(String),
@@ -18,7 +18,7 @@ pub enum MatchRule {
 impl MatchRule {
     pub fn resolve(&self, input: &String) -> bool {
         match self {
-            MatchRule::Matches(reg) => return reg.is_match(input),
+            MatchRule::Find(reg) => return reg.is_match(input),
             MatchRule::Equals(s) => return input == s,
             MatchRule::Contains(s) => {
                 if s.len() > input.len() {
@@ -185,7 +185,7 @@ mod tests {
 
             #[test]
             fn test_matches_1() {
-                return assert!(MatchRule::Matches(
+                return assert!(MatchRule::Find(
                     Regex::new(r"^([A-z])* \(\d{4}\)\.[A-z]{3}").unwrap()
                 )
                 .resolve(&"test (1922).mkv".to_string()));
@@ -193,7 +193,7 @@ mod tests {
 
             #[test]
             fn test_matches_2() {
-                return assert!(!MatchRule::Matches(
+                return assert!(!MatchRule::Find(
                     Regex::new(r"^([A-z])* \(\d{4}\)\.[A-z]{3}").unwrap()
                 )
                 .resolve(&"".to_string()));
@@ -201,7 +201,7 @@ mod tests {
 
             #[test]
             fn test_matches_3() {
-                return assert!(!MatchRule::Matches(
+                return assert!(!MatchRule::Find(
                     Regex::new(r"^([A-z])* \(\d{4}\)\.[A-z]{3}").unwrap()
                 )
                 .resolve(&"test (1922).mk".to_string()));

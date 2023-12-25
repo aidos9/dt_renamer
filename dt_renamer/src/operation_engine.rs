@@ -1,13 +1,8 @@
 use std::collections::HashMap;
-use std::path::PathBuf;
 
 use crate::error::Error;
 use crate::operations::{DirOperation, FileOperation};
 use crate::rename_tree::{Dir, File};
-
-use convert_case::Casing;
-#[cfg(feature = "regex_match")]
-use regex::Regex;
 
 #[derive(Debug, Default, Clone)]
 pub struct OperationEngine {
@@ -49,28 +44,40 @@ impl OperationEngine {
             op.execute(self, &mut files)?;
         }
 
+        return self.run_files(files);
+    }
+
+    fn run_files(&mut self, files: Vec<File>) -> Result<(), Error> {
         self.files = files;
+
+        while self.current_file < self.files.len() {
+            self.run_file()?;
+
+            self.current_file += 1;
+        }
 
         return Ok(());
     }
 
-    fn run_files(&mut self) {}
-
     pub fn process_file(&mut self, file: File) -> Result<(), Error> {
         self.local_index = 0;
+        self.files = vec![file];
+        self.current_file = 0;
 
-        return self.run_file(file);
+        return self.run_file();
     }
 
-    fn run_file(&mut self, mut file: File) -> Result<(), Error> {
+    fn run_file(&mut self) -> Result<(), Error> {
         let ops = self.file_operations.clone();
 
         for op in ops {
-            op.execute(self, &mut file.destination)?;
+            op.execute(self)?;
         }
 
-        for op in &file.ops {
-            op.execute(self, &mut file.destination)?;
+        let ops = self.current_file().ops.clone();
+
+        for op in ops {
+            op.execute(self)?;
         }
 
         self.global_index += 1;
@@ -79,28 +86,8 @@ impl OperationEngine {
         return Ok(());
     }
 
-    fn get_file_name(path: &PathBuf) -> Result<String, Error> {
-        return path
-            .file_name()
-            .map(|f_name| {
-                f_name
-                    .to_os_string()
-                    .into_string()
-                    .map_err(|_| Error::CannotIdentifyFileName)
-            })
-            .ok_or(Error::CannotIdentifyFileName)?;
-    }
-
-    pub(crate) fn local_index(&self) -> usize {
-        return self.local_index;
-    }
-
     pub(crate) fn set_local_index(&mut self, index: usize) {
         self.local_index = index;
-    }
-
-    pub(crate) fn global_index(&self) -> usize {
-        return self.global_index;
     }
 
     pub(crate) fn set_variable(&mut self, var_name: String, value: String) {
@@ -108,10 +95,18 @@ impl OperationEngine {
     }
 
     pub(crate) fn get_variable(&self, var_name: &str) -> Option<String> {
-        return self.variables.get(var_name).map(|s| s.clone());
+        return match var_name {
+            "global_index" => Some(self.global_index.to_string()),
+            "local_index" => Some(self.local_index.to_string()),
+            s => self.variables.get(s).map(|s| s.clone()),
+        };
     }
 
-    pub(crate) fn current_file(&self) -> &File {
-        return &self.files[self.current_file];
+    pub(crate) fn current_file(&mut self) -> &mut File {
+        return &mut self.files[self.current_file];
+    }
+
+    pub fn into_files(self) -> Vec<File> {
+        return self.files;
     }
 }
